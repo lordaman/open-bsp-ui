@@ -1,0 +1,46 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    # Runs every 3 days at 06:00 UTC (Supabase pauses free tier after 7 days of inactivity)
+    - cron: "0 6 */3 * *"
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  keep-alive:
+    name: Ping Supabase Database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase API & Database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENBSP_KEY: ${{ secrets.OPENBSP_API_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::SUPABASE_URL and SUPABASE_KEY secrets are not configured in this repository."
+            echo "Please navigate to Settings > Secrets and variables > Actions and add SUPABASE_URL and SUPABASE_KEY."
+            exit 1
+          fi
+
+          echo "Pinging Supabase PostgREST endpoint..."
+
+          # Build authorization headers
+          AUTH_HEADER=(-H "apikey: $SUPABASE_KEY")
+          if [ -n "$OPENBSP_KEY" ]; then
+            AUTH_HEADER+=(-H "api-key: $OPENBSP_KEY")
+          fi
+
+          # Ping PostgREST Database Endpoint (Triggers Postgres queries)
+          DB_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 15 \
+            "$SUPABASE_URL/rest/v1/organizations_addresses?select=count" \
+            "${AUTH_HEADER[@]}")
+          echo "PostgREST database status: $DB_CODE"
+
+          # Validate connectivity (000 indicates network failure or invalid host)
+          if [ "$DB_CODE" = "000" ]; then
+            echo "::error::Failed to reach Supabase project. Check SUPABASE_URL."
+            exit 1
+          fi
+
+          echo "Keep-alive ping completed successfully!"
